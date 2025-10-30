@@ -131,5 +131,6 @@ if __name__ == '__main__':
     print("   - GET  /health")
     print("   - GET  /features")
     print("   - Running on http://0.0.0.0:5000")
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
 
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
