@@ -1,4 +1,4 @@
-# ml_api.py
+
 # ===============================================
 # 🚀 Neural Network API for Disease Prediction
 # ===============================================
@@ -13,32 +13,40 @@ import os
 app = Flask(__name__)
 
 # -------------------------------------------------
-# 1️⃣ Load trained model and label encoder
+# 1️⃣ Load model, encoder, and feature names
 # -------------------------------------------------
 model = None
 label_encoder = None
 feature_names = []
 
 try:
-    if not os.path.exists("disease_nn_model.h5") or not os.path.exists("label_encoder.pkl"):
-        print("❌ Model or encoder file not found. Please run train_model.py first.")
-        exit(1)
+    MODEL_PATH = "disease_nn_model.h5"
+    ENCODER_PATH = "label_encoder.pkl"
+    HEADER_PATH = "header.txt"  # Only first line from dataset
 
-    model = tf.keras.models.load_model("disease_nn_model.h5")
-    label_encoder = joblib.load("label_encoder.pkl")
-    print("✅ Model and label encoder loaded successfully")
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(ENCODER_PATH):
+        raise FileNotFoundError("❌ Model or encoder file missing. Train model first.")
 
-    # Load dataset just to get feature names
-    df = pd.read_csv("DiseaseDataset.csv")
-    feature_names = df.drop(columns=["diseases"]).columns.tolist()
-    print(f"📋 Available features: {len(feature_names)} symptoms")
+    # Load model and label encoder
+    model = tf.keras.models.load_model(MODEL_PATH)
+    label_encoder = joblib.load(ENCODER_PATH)
+    print("✅ Model and encoder loaded successfully")
+
+    # Load only header row (symptom names)
+    if os.path.exists(HEADER_PATH):
+        with open(HEADER_PATH, "r", encoding="utf-8") as f:
+            header_line = f.readline().strip()
+            columns = [col.strip() for col in header_line.split(",")]
+            feature_names = [c for c in columns if c.lower() != "diseases"]
+        print(f"📋 Loaded {len(feature_names)} features from header.txt")
+    else:
+        raise FileNotFoundError("❌ header.txt not found.")
 
 except Exception as e:
-    print(f"❌ Error loading model or dataset: {e}")
-    exit(1)
+    print(f"❌ Initialization error: {e}")
 
 # -------------------------------------------------
-# 2️⃣ Enable CORS (for Flutter)
+# 2️⃣ CORS
 # -------------------------------------------------
 @app.after_request
 def after_request(response):
@@ -48,35 +56,30 @@ def after_request(response):
     return response
 
 # -------------------------------------------------
-# 3️⃣ Prediction Endpoint
+# 3️⃣ Prediction
 # -------------------------------------------------
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
     if request.method == 'OPTIONS':
-        return '', 204  # CORS preflight
+        return '', 204
 
     try:
         data = request.get_json()
-        print(f"📨 Received data: {data}")
+        print(f"📨 Received: {data}")
 
-        # Prepare input data (initialize all to 0)
-        input_data = {feature: 0 for feature in feature_names}
+        input_data = {f: 0 for f in feature_names}
 
-        # Map Flutter symptom selections to model features
-        for symptom, is_selected in data.items():
-            if symptom in input_data and is_selected:
+        for symptom, selected in data.items():
+            if symptom in input_data and selected:
                 input_data[symptom] = 1
 
-        # Convert to DataFrame
         input_df = pd.DataFrame([input_data])
-
-        # Predict using Neural Network
         pred_probs = model.predict(input_df)
         pred_class = np.argmax(pred_probs)
         confidence = float(np.max(pred_probs))
         predicted_disease = label_encoder.inverse_transform([pred_class])[0]
 
-        print(f"🎯 Prediction: {predicted_disease} (confidence: {confidence:.2f})")
+        print(f"🎯 Predicted: {predicted_disease} ({confidence:.2f})")
 
         return jsonify({
             "prediction": predicted_disease,
@@ -89,10 +92,10 @@ def predict():
         return jsonify({'error': str(e), 'success': False}), 400
 
 # -------------------------------------------------
-# 4️⃣ Health Check Endpoint
+# 4️⃣ Health Check
 # -------------------------------------------------
 @app.route('/health', methods=['GET'])
-def health_check():
+def health():
     return jsonify({
         "status": "healthy",
         "model_loaded": model is not None,
@@ -100,23 +103,16 @@ def health_check():
     })
 
 # -------------------------------------------------
-# 5️⃣ Features Endpoint (for Flutter symptom list)
+# 5️⃣ Features Endpoint
 # -------------------------------------------------
 @app.route('/features', methods=['GET'])
 def get_features():
-    return jsonify({
-        "symptoms": feature_names
-    })
+    return jsonify({"symptoms": feature_names})
 
 # -------------------------------------------------
-# 6️⃣ Run Flask Server
+# 6️⃣ Entry Point
 # -------------------------------------------------
 if __name__ == '__main__':
-    print("🚀 Starting Neural Network ML API server...")
-    print("📊 Endpoints:")
-    print("   - POST /predict")
-    print("   - GET  /health")
-    print("   - GET  /features")
-    print("   - Running on http://0.0.0.0:5000")
-
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    port = int(os.environ.get("PORT", 5000))
+    print("🚀 API running on port", port)
+    app.run(host='0.0.0.0', port=port)
